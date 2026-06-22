@@ -1,37 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import {
-  createSubscriptionCheckout,
-  createSubscriptionCustomer,
-  getSubscriptionCustomerByReference,
+  createCheckoutLink,
+  getSubscriptionPrice,
 } from "@/lib/payments";
-
-const PLAN_ENV_KEYS = {
-  supporter: {
-    monthly: "INTASEND_PLAN_SUPPORTER_MONTHLY",
-    yearly: "INTASEND_PLAN_SUPPORTER_YEARLY",
-    fallback: "INTASEND_PLAN_SUPPORTER",
-  },
-  forgotten: {
-    monthly: "INTASEND_PLAN_FORGOTTEN_MONTHLY",
-    yearly: "INTASEND_PLAN_FORGOTTEN_YEARLY",
-    fallback: "INTASEND_PLAN_FORGOTTEN",
-  },
-  watcher: {
-    monthly: "INTASEND_PLAN_WATCHER_MONTHLY",
-    yearly: "INTASEND_PLAN_WATCHER_YEARLY",
-    fallback: "INTASEND_PLAN_WATCHER",
-  },
-} as const;
-
-function formatIntaSendName(value: string | undefined, fallback: string): string {
-  const cleaned = (value || fallback)
-    .replace(/[^a-zA-Z0-9-_: ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleaned || fallback;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,61 +31,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid billing period" }, { status: 400 });
     }
 
-    const planEnvKeys = PLAN_ENV_KEYS[tier];
-    const planEnvKey = planEnvKeys[billingPeriod];
-    const planId = process.env[planEnvKey] || process.env[planEnvKeys.fallback];
-    if (!planId) {
-      return NextResponse.json(
-        { error: `Missing ${planEnvKey} or ${planEnvKeys.fallback}` },
-        { status: 500 }
-      );
-    }
-
-    const secretKey = process.env.INTASEND_SECRET_KEY;
-    if (!secretKey) {
-      return NextResponse.json({ error: "Missing INTASEND_SECRET_KEY" }, { status: 500 });
+    const publicKey =
+      process.env.INTASEND_PUBLIC_API_KEY ||
+      process.env.NEXT_PUBLIC_INTASEND_PUBLIC_KEY ||
+      "";
+    if (!publicKey) {
+      return NextResponse.json({ error: "Missing IntaSend public API key" }, { status: 500 });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const reference = `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}_${Date.now()}`;
-    const email = session.user.email || "";
-    const [firstName, ...lastNameParts] = (
-      session.user.user_metadata?.display_name ||
-      email.split("@")[0] ||
-      "Streetlight"
-    ).split(" ");
-
-    const customerReference = session.user.id;
-    const existingCustomer = await getSubscriptionCustomerByReference(customerReference, secretKey);
-    const customer = existingCustomer ?? (await createSubscriptionCustomer(
-        {
-          email,
-          first_name: formatIntaSendName(firstName, "Streetlight"),
-          last_name: formatIntaSendName(lastNameParts.join(" "), "Reader"),
-          reference: customerReference,
-          country: "KE",
-        },
-        secretKey
-      ));
-
-    const customerId = customer.customer_id || customer.id;
-    if (!customerId) {
-      throw new Error("IntaSend did not return a customer ID");
-    }
-
-    const checkout = await createSubscriptionCheckout(
+    const price = getSubscriptionPrice(tier, billingPeriod);
+    const checkout = await createCheckoutLink(
       {
-        customer_id: customerId,
-        reference,
-        plan_id: planId,
+        amount: price.amount,
+        currency: price.currency,
+        email: session.user.email || "",
+        api_ref: `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}`,
         redirect_url: `${siteUrl}/payment/success`,
+        comment: `Streetlight ${tier} ${billingPeriod} subscription`,
+        mobile_tarrif: "CUSTOMER-PAYS",
+        card_tarrif: "CUSTOMER-PAYS",
       },
-      secretKey
+      publicKey
     );
 
     return NextResponse.json({
-      checkoutUrl: checkout.setup_url,
-      subscriptionId: checkout.subscription_id,
+      checkoutUrl: checkout.url,
     });
 
   } catch (error: any) {
