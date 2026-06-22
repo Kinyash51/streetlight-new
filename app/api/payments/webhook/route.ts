@@ -23,6 +23,18 @@ function getPeriodEnd(billingPeriod: "monthly" | "yearly") {
 
 export async function POST(request: NextRequest) {
   try {
+    const expectedChallenge = process.env.INTASEND_WEBHOOK_SECRET;
+    const challenge = request.headers.get("x-intasend-challenge");
+
+    if (!expectedChallenge) {
+      console.error("INTASEND_WEBHOOK_SECRET is not configured");
+      return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
+    }
+
+    if (challenge !== expectedChallenge) {
+      return NextResponse.json({ error: "Invalid challenge" }, { status: 401 });
+    }
+
     const payload = await request.json();
     const { invoice_id, status, api_ref } = payload as {
       invoice_id?: string;
