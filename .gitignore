@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 !.env.local.example
+.npmrc
 .next/
 node_modules/
 tsconfig.tsbuildinfo
