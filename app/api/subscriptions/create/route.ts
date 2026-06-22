@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server";
 import {
   createSubscriptionCheckout,
   createSubscriptionCustomer,
+  getSubscriptionCustomerByReference,
 } from "@/lib/payments";
 
 const PLAN_ENV_KEYS = {
@@ -22,6 +23,15 @@ const PLAN_ENV_KEYS = {
     fallback: "INTASEND_PLAN_WATCHER",
   },
 } as const;
+
+function formatIntaSendName(value: string | undefined, fallback: string): string {
+  const cleaned = (value || fallback)
+    .replace(/[^a-zA-Z0-9-_: ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || fallback;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -65,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const reference = `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}`;
+    const reference = `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}_${Date.now()}`;
     const email = session.user.email || "";
     const [firstName, ...lastNameParts] = (
       session.user.user_metadata?.display_name ||
@@ -73,16 +83,18 @@ export async function POST(request: NextRequest) {
       "Streetlight"
     ).split(" ");
 
-    const customer = await createSubscriptionCustomer(
-      {
-        email,
-        first_name: firstName || "Streetlight",
-        last_name: lastNameParts.join(" ") || "Reader",
-        reference: session.user.id,
-        country: "KE",
-      },
-      secretKey
-    );
+    const customerReference = session.user.id;
+    const existingCustomer = await getSubscriptionCustomerByReference(customerReference, secretKey);
+    const customer = existingCustomer ?? (await createSubscriptionCustomer(
+        {
+          email,
+          first_name: formatIntaSendName(firstName, "Streetlight"),
+          last_name: formatIntaSendName(lastNameParts.join(" "), "Reader"),
+          reference: customerReference,
+          country: "KE",
+        },
+        secretKey
+      ));
 
     const customerId = customer.customer_id || customer.id;
     if (!customerId) {

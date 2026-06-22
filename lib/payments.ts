@@ -25,6 +25,10 @@ export interface SubscriptionCustomerResponse {
   id?: string;
 }
 
+export interface SubscriptionCustomerListResponse {
+  results?: SubscriptionCustomerResponse[];
+}
+
 export interface SubscriptionCheckoutResponse {
   subscription_id: string;
   customer_id: string;
@@ -62,6 +66,30 @@ async function intasendRequest<T>(
   return response.json();
 }
 
+async function intasendGet<T>(
+  path: string,
+  bearerToken: string
+): Promise<T> {
+  if (!bearerToken) {
+    throw new Error("IntaSend API key is not configured");
+  }
+
+  const response = await fetch(`${INTASEND_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${bearerToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`IntaSend request failed: ${error}`);
+  }
+
+  return response.json();
+}
+
 export async function createCheckoutLink(
   payload: CheckoutPayload,
   publicKey: string
@@ -84,6 +112,22 @@ export async function createSubscriptionCustomer(
     payload,
     secretKey
   );
+}
+
+export async function getSubscriptionCustomerByReference(
+  reference: string,
+  secretKey: string
+): Promise<SubscriptionCustomerResponse | null> {
+  const data = await intasendGet<SubscriptionCustomerListResponse>(
+    `/subscriptions-customers/?reference=${encodeURIComponent(reference)}`,
+    secretKey
+  );
+
+  if (Array.isArray(data)) {
+    return data[0] ?? null;
+  }
+
+  return data.results?.[0] ?? null;
 }
 
 export async function createSubscriptionCheckout(
