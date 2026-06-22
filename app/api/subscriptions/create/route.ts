@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import { createCheckoutLink } from "@/lib/payments";
+import {
+  createSubscriptionCheckout,
+  createSubscriptionCustomer,
+} from "@/lib/payments";
+
+const PLAN_ENV_KEYS = {
+  supporter: {
+    monthly: "INTASEND_PLAN_SUPPORTER_MONTHLY",
+    yearly: "INTASEND_PLAN_SUPPORTER_YEARLY",
+    fallback: "INTASEND_PLAN_SUPPORTER",
+  },
+  forgotten: {
+    monthly: "INTASEND_PLAN_FORGOTTEN_MONTHLY",
+    yearly: "INTASEND_PLAN_FORGOTTEN_YEARLY",
+    fallback: "INTASEND_PLAN_FORGOTTEN",
+  },
+  watcher: {
+    monthly: "INTASEND_PLAN_WATCHER_MONTHLY",
+    yearly: "INTASEND_PLAN_WATCHER_YEARLY",
+    fallback: "INTASEND_PLAN_WATCHER",
+  },
+} as const;
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,12 +37,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const tierPrices = {
-      supporter: { monthly: 300, yearly: 3000 },
-      forgotten: { monthly: 800, yearly: 8000 },
-      watcher: { monthly: 1500, yearly: 15000 },
-    };
-
     if (
       tier !== "supporter" &&
       tier !== "forgotten" &&
@@ -34,29 +49,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid billing period" }, { status: 400 });
     }
 
-    const price = tierPrices[tier][billingPeriod];
-    if (!price) {
-      return NextResponse.json({ error: "Invalid tier" }, { status: 400 });
+    const planEnvKeys = PLAN_ENV_KEYS[tier];
+    const planEnvKey = planEnvKeys[billingPeriod];
+    const planId = process.env[planEnvKey] || process.env[planEnvKeys.fallback];
+    if (!planId) {
+      return NextResponse.json(
+        { error: `Missing ${planEnvKey} or ${planEnvKeys.fallback}` },
+        { status: 500 }
+      );
+    }
+
+    const secretKey = process.env.INTASEND_SECRET_KEY;
+    if (!secretKey) {
+      return NextResponse.json({ error: "Missing INTASEND_SECRET_KEY" }, { status: 500 });
     }
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const checkout = await createCheckoutLink(
+    const reference = `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}`;
+    const email = session.user.email || "";
+    const [firstName, ...lastNameParts] = (
+      session.user.user_metadata?.display_name ||
+      email.split("@")[0] ||
+      "Streetlight"
+    ).split(" ");
+
+    const customer = await createSubscriptionCustomer(
       {
-        amount: price,
-        currency: "KES",
-        email: session.user.email || "",
-        api_ref: `streetlight_sub_${tier}_${billingPeriod}_${session.user.id}`,
-        redirect_url: `${siteUrl}/payment/success?type=subscription&tier=${tier}`,
-        comment: `Streetlight Subscription: ${tier}`,
-        mobile_tarrif: "CUSTOMER-PAYS",
-        card_tarrif: "CUSTOMER-PAYS",
+        email,
+        first_name: firstName || "Streetlight",
+        last_name: lastNameParts.join(" ") || "Reader",
+        reference: session.user.id,
+        country: "KE",
       },
-      process.env.INTASEND_PUBLIC_API_KEY ||
-        process.env.NEXT_PUBLIC_INTASEND_PUBLIC_KEY ||
-        ""
+      secretKey
     );
 
-    return NextResponse.json({ checkoutUrl: checkout.url });
+    const customerId = customer.customer_id || customer.id;
+    if (!customerId) {
+      throw new Error("IntaSend did not return a customer ID");
+    }
+
+    const checkout = await createSubscriptionCheckout(
+      {
+        customer_id: customerId,
+        reference,
+        plan_id: planId,
+        redirect_url: `${siteUrl}/payment/success?type=subscription&tier=${tier}`,
+        start_date: new Date().toISOString().slice(0, 10),
+      },
+      secretKey
+    );
+
+    return NextResponse.json({
+      checkoutUrl: checkout.setup_url,
+      subscriptionId: checkout.subscription_id,
+    });
 
   } catch (error: any) {
     console.error("Subscription error:", error);

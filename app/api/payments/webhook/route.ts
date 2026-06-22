@@ -36,17 +36,27 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = await request.json();
-    const { invoice_id, status, api_ref } = payload as {
+    const { invoice_id, subscription_id, status, api_ref, reference, state, payment } = payload as {
       invoice_id?: string;
+      subscription_id?: string;
       status?: string;
       api_ref?: string;
+      reference?: string;
+      state?: string;
+      payment?: {
+        state?: string;
+        invoice_id?: string;
+      };
     };
+    const paymentStatus = status || state || payment?.state;
+    const paymentReference = invoice_id || payment?.invoice_id || subscription_id;
+    const apiReference = api_ref || reference;
 
-    if (!api_ref || !api_ref.startsWith("streetlight_")) {
+    if (!apiReference || !apiReference.startsWith("streetlight_")) {
       return NextResponse.json({ message: "Ignored" }, { status: 200 });
     }
 
-    const parts = api_ref.split("_");
+    const parts = apiReference.split("_");
     const supabase = createAdminSupabaseClient();
 
     if (parts[1] === "sub") {
@@ -62,7 +72,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid subscription reference" }, { status: 400 });
       }
 
-      if (!isCompletedPayment(status)) {
+      if (!isCompletedPayment(paymentStatus)) {
         return NextResponse.json({ message: "Subscription payment not completed" }, { status: 200 });
       }
 
@@ -82,7 +92,7 @@ export async function POST(request: NextRequest) {
             billing_period: billingPeriod,
             current_period_start: new Date().toISOString(),
             current_period_end: periodEnd.toISOString(),
-            payment_reference: invoice_id ?? null,
+            payment_reference: paymentReference ?? null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
@@ -95,7 +105,7 @@ export async function POST(request: NextRequest) {
           current_period_start: new Date().toISOString(),
           current_period_end: periodEnd.toISOString(),
           payment_provider: "intasend",
-          payment_reference: invoice_id ?? null,
+          payment_reference: paymentReference ?? null,
         });
       }
 
@@ -123,9 +133,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
     }
 
-    const newStatus = isCompletedPayment(status)
+    const newStatus = isCompletedPayment(paymentStatus)
       ? "completed"
-      : isFailedPayment(status)
+      : isFailedPayment(paymentStatus)
         ? "failed"
         : "pending";
 
@@ -133,7 +143,7 @@ export async function POST(request: NextRequest) {
       .from("purchases")
       .update({
         status: newStatus,
-        payment_reference: invoice_id ?? null,
+        payment_reference: paymentReference ?? null,
       })
       .eq("id", purchase.id);
 

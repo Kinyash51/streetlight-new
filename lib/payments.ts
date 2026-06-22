@@ -15,31 +15,92 @@ export interface CheckoutPayload {
 
 export interface CheckoutResponse {
   url: string;
-  id: string;
-  status: string;
+  id?: string;
+  invoice_id?: string;
+  status?: string;
 }
 
-const INTASEND_BASE_URL = "https://payment.intasend.com/api/v1";
+export interface SubscriptionCustomerResponse {
+  customer_id: string;
+  id?: string;
+}
 
-export async function createCheckoutLink(
-  payload: CheckoutPayload,
-  publicKey: string
-): Promise<CheckoutResponse> {
-  const response = await fetch(`${INTASEND_BASE_URL}/checkout/`, {
+export interface SubscriptionCheckoutResponse {
+  subscription_id: string;
+  customer_id: string;
+  reference: string;
+  plan_id: string;
+  status: string;
+  setup_url: string;
+}
+
+const INTASEND_BASE_URL = "https://api.intasend.com/api/v1";
+
+async function intasendRequest<T>(
+  path: string,
+  payload: object,
+  bearerToken: string
+): Promise<T> {
+  if (!bearerToken) {
+    throw new Error("IntaSend API key is not configured");
+  }
+
+  const response = await fetch(`${INTASEND_BASE_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${publicKey}`,
+      "Authorization": `Bearer ${bearerToken}`,
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Payment initiation failed: ${error}`);
+    throw new Error(`IntaSend request failed: ${error}`);
   }
 
   return response.json();
+}
+
+export async function createCheckoutLink(
+  payload: CheckoutPayload,
+  publicKey: string
+): Promise<CheckoutResponse> {
+  return intasendRequest<CheckoutResponse>("/checkout/", payload, publicKey);
+}
+
+export async function createSubscriptionCustomer(
+  payload: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    reference: string;
+    country?: string;
+  },
+  secretKey: string
+): Promise<SubscriptionCustomerResponse> {
+  return intasendRequest<SubscriptionCustomerResponse>(
+    "/subscriptions-customers/",
+    payload,
+    secretKey
+  );
+}
+
+export async function createSubscriptionCheckout(
+  payload: {
+    customer_id: string;
+    reference: string;
+    plan_id: string;
+    redirect_url: string;
+    start_date?: string;
+  },
+  secretKey: string
+): Promise<SubscriptionCheckoutResponse> {
+  return intasendRequest<SubscriptionCheckoutResponse>(
+    "/subscriptions/",
+    payload,
+    secretKey
+  );
 }
 
 export function getContentPrice(
