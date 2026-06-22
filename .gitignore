@@ -9,6 +9,7 @@ tsconfig.tsbuildinfo
 dev-*.log
 dev-*.err.log
 travis/
+trevor/
 
 # Vercel/local tooling
 .vercel/
