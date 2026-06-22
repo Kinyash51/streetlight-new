@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       itemId,
       userId,
       userEmail,
-      `${siteUrl}/payment/success?purchase_id=${purchase.id}&item_type=${itemType}&item_id=${itemId}`,
+      `${siteUrl}/payment/success?purchase_id=${purchase.id}`,
       price.amount,
       price.currency
     );

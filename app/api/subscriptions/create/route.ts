@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
         customer_id: customerId,
         reference,
         plan_id: planId,
-        redirect_url: `${siteUrl}/payment/success?type=subscription&tier=${tier}`,
+        redirect_url: `${siteUrl}/payment/success?type=subscription`,
         start_date: new Date().toISOString().slice(0, 10),
       },
       secretKey
