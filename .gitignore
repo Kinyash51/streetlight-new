@@ -1,0 +1,14 @@
+.env*.local
+.next/
+node_modules/
+tsconfig.tsbuildinfo
+dev-*.log
+dev-*.err.log
+travis/
+
+# Vercel/local tooling
+.vercel/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
