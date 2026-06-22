@@ -136,7 +136,6 @@ export async function createSubscriptionCheckout(
     reference: string;
     plan_id: string;
     redirect_url: string;
-    start_date?: string;
   },
   secretKey: string
 ): Promise<SubscriptionCheckoutResponse> {
